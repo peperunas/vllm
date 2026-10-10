@@ -73,6 +73,7 @@ from vllm.profiler.wrapper import (
 from vllm.sequence import IntermediateTensors
 from vllm.tasks import SupportedTask
 from vllm.tracing import instrument
+from vllm.utils.flashinfer import warn_if_flashinfer_kernels_missing
 from vllm.utils.gc_utils import freeze_gc_heap, maybe_attach_gc_debug_callback
 from vllm.utils.gpu_sync_debug import enable_gpu_sync_check, with_gpu_sync_check
 from vllm.utils.mem_constants import GiB_bytes
@@ -497,6 +498,7 @@ class Worker(WorkerBase):
 
             if self.use_v2_model_runner:
                 logger.info_once("Using V2 Model Runner")
+            warn_if_flashinfer_kernels_missing()
 
             # Set random seed.
             set_random_seed(self.model_config.seed)
@@ -821,10 +823,15 @@ class Worker(WorkerBase):
         # so that it's available to the warmup stage.
         self.cache_config.num_gpu_blocks = kv_cache_config.num_blocks
 
-        # Adopt the engine core's layout; workers spawned after resolution
-        # (e.g. elastic EP scale-up) only see it through the config.
+        # Adopt the engine core's layout and prefix-cache granularity; workers
+        # spawned after resolution (e.g. elastic EP scale-up) only see them
+        # through the config.
         if kv_cache_config.kv_cache_layout is not None:
             record_kv_cache_layout(self.cache_config, kv_cache_config.kv_cache_layout)
+        self.cache_config.hash_block_size = kv_cache_config.hash_block_size
+        self.cache_config.cache_hit_alignment_tokens = (
+            kv_cache_config.cache_hit_alignment_tokens
+        )
 
         # Init kv cache connector here, because it requires
         # `kv_cache_config`.
